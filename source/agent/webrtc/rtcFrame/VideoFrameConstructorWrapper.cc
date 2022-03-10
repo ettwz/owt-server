@@ -7,6 +7,7 @@
 #endif
 
 #include "VideoFrameConstructorWrapper.h"
+#include "CallBaseWrapper.h"
 
 using namespace v8;
 
@@ -30,20 +31,25 @@ NAN_MODULE_INIT(VideoFrameConstructor::Init) {
   Nan::SetPrototypeMethod(tpl, "removeDestination", removeDestination);
   Nan::SetPrototypeMethod(tpl, "setBitrate", setBitrate);
   Nan::SetPrototypeMethod(tpl, "requestKeyFrame", requestKeyFrame);
+  Nan::SetPrototypeMethod(tpl, "source", source);
 
-  constructor.Reset(tpl->GetFunction());
-  Nan::Set(target, Nan::New("VideoFrameConstructor").ToLocalChecked(), Nan::GetFunction(tpl).ToLocalChecked());
+  constructor.Reset(Nan::GetFunction(tpl).ToLocalChecked());
+  Nan::Set(target,
+           Nan::New("VideoFrameConstructor").ToLocalChecked(),
+           Nan::GetFunction(tpl).ToLocalChecked());
+
+  VideoFrameSource::Init(target);
 }
 
 NAN_METHOD(VideoFrameConstructor::New) {
   if (info.IsConstructCall()) {
     VideoFrameConstructor* obj = new VideoFrameConstructor();
-    int transportccExt = (info.Length() >= 2) ? info[1]->IntegerValue(Nan::GetCurrentContext()).ToChecked() : -1;
-    VideoFrameConstructor* base_wrapper = (info.Length() == 3)
-      ? Nan::ObjectWrap::Unwrap<VideoFrameConstructor>(Nan::To<v8::Object>(info[2]).ToLocalChecked())
+    int transportccExt = (info.Length() >= 2) ? Nan::To<int32_t>(info[1]).FromMaybe(-1) : -1;
+    CallBase* baseWrapper = (info.Length() == 3)
+      ? Nan::ObjectWrap::Unwrap<CallBase>(Nan::To<v8::Object>(info[2]).ToLocalChecked())
       : nullptr;
-    if (base_wrapper) {
-      obj->me = new owt_base::VideoFrameConstructor(base_wrapper->me, obj, transportccExt);
+    if (baseWrapper) {
+      obj->me = new owt_base::VideoFrameConstructor(baseWrapper->rtcAdapter, obj, transportccExt);
     } else if (transportccExt > 0) {
       obj->me = new owt_base::VideoFrameConstructor(obj, transportccExt);
     } else {
@@ -97,7 +103,8 @@ NAN_METHOD(VideoFrameConstructor::addDestination) {
   VideoFrameConstructor* obj = Nan::ObjectWrap::Unwrap<VideoFrameConstructor>(info.Holder());
   owt_base::VideoFrameConstructor* me = obj->me;
 
-  FrameDestination* param = node::ObjectWrap::Unwrap<FrameDestination>(info[0]->ToObject(Nan::GetCurrentContext()).ToLocalChecked());
+  FrameDestination* param = node::ObjectWrap::Unwrap<FrameDestination>(
+    Nan::To<v8::Object>(info[0]).ToLocalChecked());
   owt_base::FrameDestination* dest = param->dest;
 
   me->addVideoDestination(dest);
@@ -107,7 +114,8 @@ NAN_METHOD(VideoFrameConstructor::removeDestination) {
   VideoFrameConstructor* obj = Nan::ObjectWrap::Unwrap<VideoFrameConstructor>(info.Holder());
   owt_base::VideoFrameConstructor* me = obj->me;
 
-  FrameDestination* param = node::ObjectWrap::Unwrap<FrameDestination>(info[0]->ToObject(Nan::GetCurrentContext()).ToLocalChecked());
+  FrameDestination* param = node::ObjectWrap::Unwrap<FrameDestination>(
+    Nan::To<v8::Object>(info[0]).ToLocalChecked());
   owt_base::FrameDestination* dest = param->dest;
 
   me->removeVideoDestination(dest);
@@ -117,7 +125,7 @@ NAN_METHOD(VideoFrameConstructor::setBitrate) {
   VideoFrameConstructor* obj = Nan::ObjectWrap::Unwrap<VideoFrameConstructor>(info.Holder());
   owt_base::VideoFrameConstructor* me = obj->me;
 
-  int bitrate = info[0]->IntegerValue(Nan::GetCurrentContext()).ToChecked();
+  int bitrate = Nan::To<int32_t>(info[0]).FromJust();
 
   me->setBitrate(bitrate);
 }
@@ -133,7 +141,7 @@ NAN_METHOD(VideoFrameConstructor::enable) {
   VideoFrameConstructor* obj = Nan::ObjectWrap::Unwrap<VideoFrameConstructor>(info.Holder());
   owt_base::VideoFrameConstructor* me = obj->me;
 
-  bool b = (info[0]->ToBoolean(Nan::GetCurrentContext()).ToLocalChecked())->BooleanValue();
+  bool b = Nan::To<bool>(info[0]).FromMaybe(true);
   me->enable(b);
 }
 
@@ -157,3 +165,31 @@ NAUV_WORK_CB(VideoFrameConstructor::Callback) {
   }
 }
 
+NAN_METHOD(VideoFrameConstructor::source) {
+  const int argc = 1;
+  v8::Local<v8::Value> argv[argc] = {info.Holder()};
+  v8::Local<v8::Function> cons = Nan::New(VideoFrameSource::constructor);
+  info.GetReturnValue().Set(Nan::NewInstance(cons, 1, argv).ToLocalChecked());
+}
+
+// Source object for VideoFrameConstructor
+Nan::Persistent<Function> VideoFrameSource::constructor;
+
+NAN_MODULE_INIT(VideoFrameSource::Init) {
+  Local<FunctionTemplate> tpl = Nan::New<FunctionTemplate>(New);
+  tpl->SetClassName(Nan::New("VideoFrameSource").ToLocalChecked());
+  tpl->InstanceTemplate()->SetInternalFieldCount(1);
+  constructor.Reset(Nan::GetFunction(tpl).ToLocalChecked());
+}
+
+NAN_METHOD(VideoFrameSource::New) {
+  if (info.Length() == 1) {
+    VideoFrameConstructor* parent = Nan::ObjectWrap::Unwrap<VideoFrameConstructor>(
+      Nan::To<v8::Object>(info[0]).ToLocalChecked());
+    VideoFrameSource* obj = new VideoFrameSource();
+    obj->me = parent->me;
+    obj->src = obj->me;
+    obj->Wrap(info.This());
+    info.GetReturnValue().Set(info.This());
+  }
+}
